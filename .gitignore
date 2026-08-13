@@ -1,0 +1,17 @@
+# Working artifacts: prepared datasets, rollouts, grades, caches.
+nextsearch-runs/
+
+# Prepared benchmark rows are never committed. SEAL-0 ships a canary string to
+# detect training contamination, and the same rule is applied to every
+# benchmark for consistency: pull the source data yourself with
+# `nextsearch-eval prepare`.
+datasets/
+
+.env
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+.venv/
