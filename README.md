@@ -149,6 +149,27 @@ the task date.
 context cap must sit below your real serving window, and the two tool-calling
 misconfigurations that fail silently.
 
+## LFM experiment
+
+An experiment track for serving and studying **LiquidAI/LFM2.5-2.6B** as a
+web-research agent inside this harness. Stage 1 serves the model with vLLM,
+proves its native `lfm2` tool calling works end to end, runs reproducible
+rollouts against Parallel Turbo, and views telemetry and training curves **live
+in Colab — no W&B, no external tracker**. It is built so later SFT/OPD/RL stages
+reuse the same configs, rollout artifacts, and dashboards.
+
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/neumbilly/NextSearch/blob/cursor/lfm2.5-2.6b-stage1-3be6/notebooks/01_lfm_serving_and_harness.ipynb)
+
+```bash
+pip install -e ".[experiment]"          # adds the live-viewer deps (matplotlib, IPython)
+nextsearch-compat --model lfm2.5-2.6b   # tool-calling compatibility gate (no search credits)
+nextsearch-telemetry <run-dir>          # per-episode + aggregate telemetry (JSON/CSV)
+```
+
+Full protocol, serving command, L4 vs A100 guidance, and Stage-1 acceptance
+criteria: **[docs/lfm2-step1.md](docs/lfm2-step1.md)**. The runnable notebook is
+[notebooks/01_lfm_serving_and_harness.ipynb](notebooks/01_lfm_serving_and_harness.ipynb).
+
 ## Data
 
 Task pools and full trajectories on the Hub:

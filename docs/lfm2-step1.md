@@ -1,0 +1,225 @@
+# LFM2.5-2.6B — Stage 1: serving and harness compatibility
+
+Stage 1 of an LFM2.5-2.6B web-research experiment. The goal is narrow and
+deliberate: **serve the model, prove it works inside the existing NextSearch
+harness, and establish the artifact and telemetry formats that later stages
+(SFT, OPD, RL) will reuse** — without implementing any training yet.
+
+Everything Stage 1 produces is a plain file under one run directory, and the
+experiment view is rendered **live inside Colab with no external tracker**.
+
+## Architecture boundary
+
+Responsibilities are kept separate on purpose, so a later training stage swaps
+in one layer without touching the others:
+
+| Layer | Owns | Code |
+|---|---|---|
+| vLLM | rendering, generation, tool-call parsing (`lfm2`), inference metrics | external server |
+| NextSearch **harness** | prompts, `search`/`fetch` tools, the episode loop, budgets | `nextsearch/harness.py`, `nextsearch/harnesses.py` |
+| NextSearch **evaluation** | prepare → rollout → grade → report | `nextsearch/cli.py`, `nextsearch/benchmarks`, `nextsearch/grading.py` |
+| **Experiment** layer | configuration, telemetry, run logging, the live viewer | `nextsearch/experiment/` |
+| Colab notebook | thin orchestration only | `notebooks/01_lfm_serving_and_harness.ipynb` |
+
+The model is one registry line (`nextsearch/models/registry.py`), served through
+the existing OpenAI-compatible vLLM client. Nothing model-specific leaks into
+the harness or the evaluation code.
+
+## The model entry
+
+`lfm2.5-2.6b` in the registry:
+
+- `model_id`: `LiquidAI/LFM2.5-2.6B`, `client`: `vllm`, endpoint from
+  `NEXTSEARCH_BASE_URL` (or `--base-url`).
+- sampling: `temperature 0.1`, `max_tokens 8192`, and vLLM-only
+  `extra_body={top_k: 50, repetition_penalty: 1.1}`.
+
+LFM2.5 is a different model family, so it **does not** inherit NextSearch-1's
+`temperature 0.7`; its sampling is written out explicitly.
+
+## Serving with vLLM
+
+LFM2.5's architecture and the `lfm2` tool-call parser ship in **vLLM ≥ 0.23.0**.
+The exact command Stage 1 uses (see the notebook's config cell for the knobs):
+
+```bash
+python -m vllm.entrypoints.openai.api_server \
+  --model LiquidAI/LFM2.5-2.6B \
+  --served-model-name LiquidAI/LFM2.5-2.6B \
+  --max-model-len 32768 \
+  --gpu-memory-utilization 0.90 \
+  --max-num-seqs 32 \
+  --enable-auto-tool-choice \
+  --tool-call-parser lfm2 \
+  --port 8000
+```
+
+- `--enable-auto-tool-choice --tool-call-parser lfm2` is mandatory: without it,
+  the model's Pythonic `<|tool_call_start|>…<|tool_call_end|>` calls arrive as
+  plain assistant text and the harness sees **no** tool call — a silent wall of
+  zero-scoring episodes. This is the failure the compatibility gate exists to
+  catch.
+- LFM2.5 *reasoning* variants also need `--reasoning-parser qwen3` so thinking
+  is surfaced as `reasoning_content`; the 2.6B dense model does not.
+- Keep `--max-model-len` (32768) **above** the harness policy cap (28000): the
+  harness stops an episode at its cap while the server still has headroom, which
+  is what makes the graceful stop, the budget nudges, and the forced-answer
+  salvage work instead of turning overflows into provider errors. See
+  [serving.md](serving.md).
+
+### L4 vs A100
+
+- **L4 (24 GB, the default Colab GPU):** ample for a 2.6B model at BF16 with a
+  32k window. Start at `--gpu-memory-utilization 0.90`, `--max-num-seqs 32`.
+  This is the recommended Stage-1 development GPU — cheap and always available.
+- **A100 (40/80 GB):** use it for throughput sweeps and larger
+  `--max-num-seqs`, or when moving to a longer context or a bigger checkpoint in
+  a later stage. It is not required for Stage 1.
+
+Process management: the notebook launches vLLM with `subprocess.Popen`, keeps
+the handle, registers an `atexit` cleanup, streams logs to a file, and polls
+`/v1/models` in a bounded readiness loop that prints the server log on failure.
+`nohup` alone is deliberately avoided — a detached server that outlives the
+kernel and cannot be stopped is worse than none.
+
+## The compatibility gate
+
+`nextsearch-compat` (module `nextsearch/compat.py`) is a generic model/server
+probe. It uses a **synthetic `lookup` tool** and a fixed prompt, so it needs
+**no `PARALLEL_API_KEY` and spends no search credits** — just two calls to the
+model server. It:
+
+1. sends a prompt only answerable via the tool;
+2. confirms a parsed OpenAI-format tool call came back;
+3. verifies the function name and a tool-call id;
+4. parses and validates the JSON arguments;
+5. returns a synthetic result carrying a sentinel;
+6. makes a second call;
+7. confirms the sentinel appears in the final answer;
+8. reports whether `reasoning_content` was captured, plus per-call latency and
+   token usage.
+
+It prints one JSON object and exits non-zero on any required-check failure:
+
+```bash
+nextsearch-compat --model lfm2.5-2.6b --base-url http://localhost:8000/v1
+```
+
+Run it before spending anything on rollouts. Fake healthy / text-only clients
+cover it in `tests/test_compat.py`.
+
+## Ungraded rollout vs paid grading
+
+- A **rollout** runs the agent live against the web (needs `PARALLEL_API_KEY`)
+  and writes `rollouts.jsonl`. It costs search credits and GPU time but **no**
+  judge spend, so Stage-1 development runs ungraded by default.
+- **Grading** is a separate paid step that scores answers with an LLM judge.
+  The reported NextSearch-1 numbers use a fixed OpenRouter judge
+  (`OPENROUTER_API_KEY`). If you only have a Google AI Studio key, a Gemini
+  judge is registered — pass it explicitly:
+
+  ```bash
+  nextsearch-eval grade  --eval-id <id> --judge gemini-3.6-flash
+  nextsearch-eval report --eval-id <id>
+  ```
+
+  The Gemini judge is **not** the judge the headline table used, so scores
+  graded with it are self-consistent but not comparable to the reported
+  numbers. Reproducing the reported scores requires `OPENROUTER_API_KEY` and the
+  default judge.
+
+## Frozen task dates and id files
+
+Every system prompt carries the task date; it is protocol, not decoration, and
+is frozen in the run manifest. Stage 1 pins `--date 2026-07-31` so a run that
+crosses midnight cannot mutate its own prompt. To fix an exact task subset
+across runs, pass `--ids-file <file>` (one sample id per line); its hash is
+frozen too. Both make a rollout reproducible and a resume validate-able.
+
+## Persistence and Colab session interruption
+
+Colab runtimes are ephemeral and disconnect. Point the run at a Drive-backed
+root and everything survives:
+
+```
+/content/drive/MyDrive/nextsearch-lfm/runs/<experiment>/<run_id>/
+    run.json         # config + hardware/software, secrets stripped
+    metrics.jsonl    # scalar/step stream (training curves + eval summary)
+    datasets/        # prepared rows + manifests (NEXTSEARCH_HOME)
+    runs/<eval_id>/  # manifests, rollouts.jsonl, grade sidecars, summaries
+    telemetry.json / telemetry.csv
+```
+
+`RunLogger` mints a **unique** `run_id` (timestamp + random suffix) so no run
+ever overwrites an earlier one, and `NEXTSEARCH_HOME` is pointed at the run
+directory so the evaluation pipeline writes there too. Rollout files are
+append-only and resumable: after a disconnect, re-run the rollout cell and it
+continues from the accepted episodes already on disk. Later stages write adapter
+checkpoints under the same root.
+
+## Live experiment view and training curves
+
+The experiment layer renders inline in Colab — **no W&B, no external service**.
+All data is a live view over local files:
+
+- `nextsearch.experiment.telemetry` derives per-episode and aggregate metrics
+  from `rollouts.jsonl` (see the matrix below), as a Python API and the
+  `nextsearch-telemetry` CLI (JSON + CSV).
+- `nextsearch.experiment.runlog.RunLogger` appends scalars and `step` records to
+  `metrics.jsonl` — this is where SFT/OPD/RL stages log loss / reward / lr /
+  eval curves.
+- `nextsearch.experiment.viewer` reads both and draws a four-panel dashboard;
+  `render(run_dir)` for a snapshot, `live_view(run_dir)` to redraw in place
+  every few seconds while a rollout streams. The training-curve panel populates
+  automatically once any stage logs `step` records; in Stage 1 it shows
+  output-TPS instead.
+
+### Telemetry matrix
+
+Per episode: benchmark, task id, checkpoint/model, GPU, vLLM version, sampling,
+stop reason, error/truncation flags, turns, assistant messages, reasoning
+chars/tokens (when the server reports them), prompt/completion/cumulative
+tokens, search and fetch call counts, max/mean calls per tool-turn, parallel-call
+turns, unique fetch URLs/domains, model/tool/wall latency, effective output
+tokens/sec, and model/search/fetch/judge cost where known.
+
+Aggregate: success rate, parsed-tool-call rate, final-answer rate, mean & p90
+turns, mean reasoning/output tokens, mean search/fetch calls, parallel-call
+rate, truncation/error rates, p50/p90/p99 wall latency, aggregate and
+single-episode TPS, episodes/hour, estimated GPU $/episode, and total search
+dollars.
+
+## Performance matrix (fill in per GPU)
+
+Record one row per serving configuration; the numbers come straight from
+`nextsearch-telemetry` / the viewer aggregate.
+
+| GPU | max-num-seqs | context | aggregate TPS | p50 / p90 / p99 wall (s) | episodes/hour | $/episode (GPU) | search $/episode |
+|---|---|---|---|---|---|---|---|
+| L4 | 32 | 32768 | — | — | — | — | — |
+| A100-40GB | 64 | 32768 | — | — | — | — | — |
+
+## Stage-1 acceptance criteria
+
+- Existing upstream tests pass, and the new compatibility, telemetry, and model
+  tests pass.
+- `nextsearch-eval models` lists `lfm2.5-2.6b`.
+- `nextsearch-compat` has a useful `--help` and passes against a served LFM2.5.
+- Telemetry parsing is covered against synthetic rollouts.
+- The notebook is valid and runs top-to-bottom on a fresh Colab GPU runtime.
+- No secrets, benchmark datasets, or generated rollouts are committed.
+
+## How later stages reuse Stage 1
+
+SFT, OPD, and RL stages consume the **same** artifacts unchanged:
+
+- the model entry and sampling recipe (`nextsearch.models.registry`);
+- the harness prompts, tools, and episode loop (rollouts are the training
+  signal);
+- `rollouts.jsonl` and the telemetry schema (evaluation of a trained checkpoint
+  is the same rollout + telemetry path, with `--checkpoint`/`gpu` stamped in);
+- `RunLogger` + the live viewer — a training stage logs `loss`/`reward`/`lr` per
+  `step`, and the same Colab dashboard shows the curves live beside the eval
+  telemetry.
+
+No Stage-1 format needs to change for a training notebook to plug in.
