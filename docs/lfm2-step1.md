@@ -116,6 +116,66 @@ notebook, paste the Modal URL into `CFG["remote_base_url"]` and the local vLLM
 cells become no-ops, so `01_lfm_serving_and_harness.ipynb` runs on a CPU
 runtime.
 
+## Run it in a Modal Notebook (no Colab)
+
+To drop Colab entirely, run the **driver** in a cheap CPU Modal Notebook and let
+the **scale-to-zero GPU app** serve the model. The notebook needs no GPU and no
+vLLM.
+
+One time:
+
+1. Deploy the GPU endpoint (scale-to-zero): `modal deploy deploy/modal_lfm_server.py`.
+2. (Optional, for instant kernel starts) deploy the driver image:
+   `modal deploy deploy/modal_notebook_image.py`.
+3. Create Modal Secrets for `PARALLEL_API_KEY`, `GEMINI_API_KEY`, `HF_TOKEN`
+   (and `VLLM_API_KEY` if you enabled endpoint auth). Attached secrets are
+   injected as **environment variables** — no `userdata.get`.
+4. Create a Modal Volume (e.g. `nextsearch-runs`); it mounts at
+   `/mnt/nextsearch-runs` and persists across kernel restarts.
+
+In the Notebook: keep the kernel on **CPU** (`GPU None`), attach the secrets and
+the volume, and optionally select the `nextsearch-notebook` image in the
+sidebar. Then:
+
+```python
+# Cell 1 — clone + install (instant if you selected the prebuilt image; use
+# `pip install -e ".[experiment]"` without --no-deps on the Default image)
+import os
+if not os.path.isdir("NextSearch"):
+    !git clone https://github.com/neumbilly/NextSearch.git
+%cd NextSearch
+!git fetch --all -q && git checkout cursor/lfm2.5-2.6b-stage1-3be6 -q
+!pip install -q -e ".[experiment]"    # add --no-deps with the prebuilt image
+
+# Cell 2 — wire the endpoint + persistent run root (secrets are already env vars)
+import os
+os.environ["NEXTSEARCH_BASE_URL"] = "https://<workspace>--nextsearch-lfm-vllm-serve.modal.run/v1"
+os.environ["NEXTSEARCH_HOME"] = "/mnt/nextsearch-runs"   # datasets/ + runs/ persist here
+
+# Cell 3 — compatibility gate against the served model (async: use await)
+import json
+from nextsearch.compat import probe
+from nextsearch.models import get_client, get_model
+m = get_model("lfm2.5-2.6b")
+print(json.dumps(await probe(get_client(m), m.model_id, m.sampling), indent=2))
+
+# Cell 4 — prepare + a 20-task dev rollout, persisted to the volume
+from nextsearch import benchmarks
+benchmarks.get("seal0").prepare()
+!nextsearch-eval rollout --benches seal0:20 --models lfm2.5-2.6b --date 2026-07-31
+
+# Cell 5 — live telemetry + training curves (inline, no tracker)
+%matplotlib inline
+from nextsearch.experiment.viewer import render, render_curves
+import matplotlib.pyplot as plt
+render(os.environ["NEXTSEARCH_HOME"]); plt.show()
+render_curves(os.environ["NEXTSEARCH_HOME"]); plt.show()
+```
+
+Everything under `/mnt/nextsearch-runs` (manifests, `rollouts.jsonl`,
+`metrics.jsonl`, telemetry, curves) survives kernel restarts, and the GPU app
+spins down when idle so you only pay while it serves.
+
 ## The compatibility gate
 
 `nextsearch-compat` (module `nextsearch/compat.py`) is a generic model/server
