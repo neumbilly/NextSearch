@@ -30,6 +30,10 @@ dev = ["pytest>=8.0", "pytest-asyncio>=0.24"]
 # telemetry and training curves are local files rendered inline (see
 # nextsearch/experiment and docs/lfm2-step1.md).
 experiment = ["matplotlib>=3.7", "ipython>=8.0"]
+# Deploying the pay-as-you-go Modal GPU endpoint (deploy/modal_lfm_server.py).
+# Only needed to serve the model on Modal; the harness talks to any endpoint
+# over NEXTSEARCH_BASE_URL and never imports modal.
+modal = ["modal>=0.64"]
 
 [build-system]
 requires = ["hatchling"]
