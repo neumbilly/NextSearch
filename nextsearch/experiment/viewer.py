@@ -228,7 +228,10 @@ def live_view(run_dir, *, refresh_s=5, max_seconds=None, gpu=None,
             now = time.monotonic()
             if max_seconds is not None and now - start >= max_seconds:
                 break
-            if stop_when_idle_s is not None and n > 0 \
+            # Stop once the run is steady for stop_when_idle_s — including when
+            # nothing has appeared at all, so a "Run all" can't hang forever on
+            # an empty run. Set stop_when_idle_s=None to wait indefinitely.
+            if stop_when_idle_s is not None \
                     and now - last_change >= stop_when_idle_s:
                 break
             time.sleep(refresh_s)
@@ -314,7 +317,9 @@ def live_curves(run_dir, *, refresh_s=5, max_seconds=None, title=None,
             now = time.monotonic()
             if max_seconds is not None and now - start >= max_seconds:
                 break
-            if stop_when_idle_s is not None and n_steps > 0 \
+            # Stop when steady for stop_when_idle_s, empty included, so a
+            # "Run all" cannot hang forever before any curve is logged.
+            if stop_when_idle_s is not None \
                     and now - last_change >= stop_when_idle_s:
                 break
             time.sleep(refresh_s)
