@@ -6,7 +6,7 @@ the tool (the exact failure the probe exists to catch)."""
 
 import asyncio
 
-from nextsearch.compat import (LOOKUP_KEY, SENTINEL, probe)
+from nextsearch.compat import (LOOKUP_KEY, SENTINEL, probe, run_probe)
 from nextsearch.types import assistant, tool_call
 
 
@@ -110,6 +110,17 @@ def test_client_exception_is_reported_not_raised():
     first = next(c for c in r["checks"] if c["name"] == "first_call_succeeded")
     assert first["ok"] is False
     assert "connection refused" in (first.get("detail") or "")
+
+
+def test_run_probe_works_inside_a_running_event_loop():
+    """Colab and Jupyter run cells inside a live loop, where asyncio.run
+    raises. run_probe must still work by falling back to a worker thread."""
+    async def call_from_within_a_loop():
+        return run_probe(client=FakeHealthyClient(with_reasoning=True),
+                         model_id="fake")
+    r = asyncio.run(call_from_within_a_loop())
+    assert r["passed"] is True
+    assert r["model"]["model_id"] == "fake"
 
 
 def test_final_answer_without_sentinel_fails():

@@ -26,7 +26,6 @@ check fails, so it drops straight into a notebook cell or CI gate.
 """
 
 import argparse
-import asyncio
 import json
 import sys
 import time
@@ -194,6 +193,31 @@ async def probe(client, model_id, sampling=None) -> dict:
     }
 
 
+def _run_coro(coro):
+    """Run a coroutine to completion from either a plain script or a notebook.
+
+    `asyncio.run` raises inside a live event loop (Colab and Jupyter run cells
+    in one), so when a loop is already running we execute the coroutine on a
+    fresh loop in a worker thread instead. No `nest_asyncio` dependency, and
+    scripts keep the plain `asyncio.run` fast path.
+    """
+    import asyncio
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+    import threading
+    box = {}
+
+    def _worker():
+        box["result"] = asyncio.run(coro)
+
+    t = threading.Thread(target=_worker)
+    t.start()
+    t.join()
+    return box["result"]
+
+
 def run_probe(model_name=None, base_url=None, model_id=None, client=None):
     """Resolve a model/client and run the probe synchronously. Either pass a
     registry `model_name` (resolved via the registry, honoring `base_url`) or
@@ -209,7 +233,7 @@ def run_probe(model_name=None, base_url=None, model_id=None, client=None):
     else:
         sampling = {}
         resolved = {"model": model_name or model_id, "model_id": model_id}
-    result = asyncio.run(probe(client, model_id, sampling))
+    result = _run_coro(probe(client, model_id, sampling))
     result["model"] = resolved
     return result
 
