@@ -82,6 +82,40 @@ the handle, registers an `atexit` cleanup, streams logs to a file, and polls
 `nohup` alone is deliberately avoided — a detached server that outlives the
 kernel and cannot be stopped is worse than none.
 
+## Serving on Modal (pay-as-you-go), driving locally
+
+Because the harness talks to the model only over an OpenAI-compatible endpoint
+(`NEXTSEARCH_BASE_URL`), serving and driving are decoupled: the GPU runs only
+`vllm serve`, and everything else (compat gate, rollouts, telemetry, viewer) can
+run on a laptop or a CPU-only notebook. `deploy/modal_lfm_server.py` serves
+LFM2.5-2.6B on a Modal GPU that **scales to zero when idle**, so you pay only
+while it serves — and you never reinstall an environment per session.
+
+```bash
+pip install "nextsearch[modal]"        # or: pip install modal
+modal setup                            # authenticate once
+modal secret create huggingface HF_TOKEN=hf_…   # download / rate limits
+modal deploy deploy/modal_lfm_server.py
+# override model/GPU: MODEL=LiquidAI/LFM2.5-8B-A1B GPU=H100 modal deploy …
+```
+
+Modal prints a URL; point NextSearch at it (note the trailing `/v1`) and run
+everything remotely:
+
+```bash
+export NEXTSEARCH_BASE_URL="https://<workspace>--nextsearch-lfm-vllm-serve.modal.run/v1"
+nextsearch-compat --model lfm2.5-2.6b
+nextsearch-eval rollout --benches seal0:20 --models lfm2.5-2.6b
+```
+
+The endpoint sets `--served-model-name LiquidAI/LFM2.5-2.6B`, so the
+`lfm2.5-2.6b` registry entry works unchanged. For auth, attach a `vllm-api-key`
+secret (the server passes it to vLLM as `--api-key`) and set the same
+`VLLM_API_KEY` locally — the vllm client already reads it. In the Colab
+notebook, paste the Modal URL into `CFG["remote_base_url"]` and the local vLLM
+cells become no-ops, so `01_lfm_serving_and_harness.ipynb` runs on a CPU
+runtime.
+
 ## The compatibility gate
 
 `nextsearch-compat` (module `nextsearch/compat.py`) is a generic model/server
@@ -214,6 +248,13 @@ All data is a live view over local files:
   every few seconds while a rollout streams. The training-curve panel populates
   automatically once any stage logs `step` records; in Stage 1 it shows
   output-TPS instead.
+- For a **focused, live training-curves view**, `render_curves(run_dir)` /
+  `live_curves(run_dir)` draw one subplot per logged series (`train/loss`,
+  `train/reward`, `eval/accuracy`, …) straight from `metrics.jsonl`. The
+  `notebooks/02_training_curves.ipynb` notebook is a runnable, auto-refreshing
+  wrapper around them (with a synthetic-curve demo cell so the live view works
+  before any real training exists). Because it just tails a local file, it can
+  watch a run training on Modal, a rented box, or your laptop.
 
 ### Telemetry matrix
 

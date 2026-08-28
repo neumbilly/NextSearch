@@ -166,9 +166,16 @@ nextsearch-compat --model lfm2.5-2.6b   # tool-calling compatibility gate (no se
 nextsearch-telemetry <run-dir>          # per-episode + aggregate telemetry (JSON/CSV)
 ```
 
-Full protocol, serving command, L4 vs A100 guidance, and Stage-1 acceptance
-criteria: **[docs/lfm2-step1.md](docs/lfm2-step1.md)**. The runnable notebook is
-[notebooks/01_lfm_serving_and_harness.ipynb](notebooks/01_lfm_serving_and_harness.ipynb).
+Serve the model wherever you have a GPU and drive it from anywhere over
+`NEXTSEARCH_BASE_URL` — including a **pay-as-you-go, scale-to-zero Modal
+endpoint** via [`deploy/modal_lfm_server.py`](deploy/modal_lfm_server.py)
+(`modal deploy deploy/modal_lfm_server.py`). Training curves and rollout
+telemetry render **live in Colab, no external tracker**:
+[notebooks/01_lfm_serving_and_harness.ipynb](notebooks/01_lfm_serving_and_harness.ipynb)
+(serving + harness) and
+[notebooks/02_training_curves.ipynb](notebooks/02_training_curves.ipynb) (live
+curves). Full protocol, serving/Modal setup, and Stage-1 acceptance criteria:
+**[docs/lfm2-step1.md](docs/lfm2-step1.md)**.
 
 ## Data
 
