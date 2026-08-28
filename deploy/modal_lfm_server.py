@@ -13,8 +13,15 @@ and the Modal docs if a decorator signature has moved on.
 Prerequisites (one time):
 
     pip install modal
-    modal setup                                   # authenticate this machine
-    modal secret create huggingface HF_TOKEN=hf_… # for model download / rate limits
+    modal setup            # authenticate this machine
+
+Secrets: by default this attaches a Modal secret named `huggingface-secret`
+(Modal's Hugging Face template default). One secret may hold several keys, so
+the same `huggingface-secret` containing HF_TOKEN (and optionally VLLM_API_KEY,
+plus any others — extras are ignored by the server) is all you need. Point at
+different secret(s) with `MODAL_SECRETS=name1,name2 modal deploy …`, or set
+`MODAL_SECRETS=` (empty) to attach none — LFM2.5-2.6B is public, so HF_TOKEN is
+optional and only helps download rate limits.
 
 Deploy a persistent, scale-to-zero endpoint:
 
@@ -64,17 +71,17 @@ app = modal.App("nextsearch-lfm-vllm")
 hf_cache = modal.Volume.from_name("huggingface-cache", create_if_missing=True)
 vllm_cache = modal.Volume.from_name("vllm-cache", create_if_missing=True)
 
+# Which Modal secret(s) to attach. Default is Modal's Hugging Face template name
+# `huggingface-secret`; one secret can hold HF_TOKEN, VLLM_API_KEY, and more.
+# `Secret.from_name` resolves at deploy time, so a listed secret must exist —
+# override with MODAL_SECRETS=a,b or set it empty to attach none.
+_SECRET_NAMES = [s.strip() for s in
+                 os.environ.get("MODAL_SECRETS", "huggingface-secret").split(",")
+                 if s.strip()]
+
 
 def _secrets():
-    """Attach optional secrets only when they exist, so a plain deploy works
-    for the public LFM2.5-2.6B without any secret setup."""
-    out = []
-    for name in ("huggingface", "vllm-api-key"):
-        try:
-            out.append(modal.Secret.from_name(name))
-        except Exception:  # noqa: BLE001 — secret not created; that is fine
-            pass
-    return out
+    return [modal.Secret.from_name(name) for name in _SECRET_NAMES]
 
 
 @app.function(

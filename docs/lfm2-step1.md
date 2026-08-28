@@ -94,8 +94,10 @@ while it serves — and you never reinstall an environment per session.
 ```bash
 pip install "nextsearch[modal]"        # or: pip install modal
 modal setup                            # authenticate once
-modal secret create huggingface HF_TOKEN=hf_…   # download / rate limits
+# Create a secret (Modal's HF template defaults to the name `huggingface-secret`);
+# one secret can hold HF_TOKEN plus any other keys.
 modal deploy deploy/modal_lfm_server.py
+# point at a different secret, or none: MODAL_SECRETS=my-secret modal deploy …
 # override model/GPU: MODEL=LiquidAI/LFM2.5-8B-A1B GPU=H100 modal deploy …
 ```
 
@@ -127,9 +129,11 @@ One time:
 1. Deploy the GPU endpoint (scale-to-zero): `modal deploy deploy/modal_lfm_server.py`.
 2. (Optional, for instant kernel starts) deploy the driver image:
    `modal deploy deploy/modal_notebook_image.py`.
-3. Create Modal Secrets for `PARALLEL_API_KEY`, `GEMINI_API_KEY`, `HF_TOKEN`
-   (and `VLLM_API_KEY` if you enabled endpoint auth). Attached secrets are
-   injected as **environment variables** — no `userdata.get`.
+3. Put `PARALLEL_API_KEY`, `GEMINI_API_KEY`, and `HF_TOKEN` in a Modal Secret
+   (one secret can hold all of them — e.g. Modal's `huggingface-secret`). Add
+   `VLLM_API_KEY` too if you enabled endpoint auth. Attached secrets are
+   injected as **environment variables** — the secret's name doesn't matter and
+   there's no `userdata.get`.
 4. Create a Modal Volume (e.g. `nextsearch-runs`); it mounts at
    `/mnt/nextsearch-runs` and persists across kernel restarts.
 
