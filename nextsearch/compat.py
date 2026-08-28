@@ -119,6 +119,7 @@ async def probe(client, model_id, sampling=None) -> dict:
     _check(checks, "first_call_succeeded", call1_error is None, call1_error)
 
     tc = None
+    observed = None
     if msg is not None:
         reasoning_seen = reasoning_seen or bool(msg.get("reasoning_content"))
         calls = msg.get("tool_calls") or []
@@ -146,6 +147,10 @@ async def probe(client, model_id, sampling=None) -> dict:
         except Exception as e:  # noqa: BLE001
             _check(checks, "arguments_parse_as_json", False,
                    f"{type(e).__name__}: {e}")
+        # Surface the actual observed call so a passing probe still SHOWS the
+        # tool being invoked, not just a green check.
+        observed = {"name": name, "id": tc.get("id"),
+                    "arguments": parsed_args}
 
     # ---- Call 2: feed a synthetic result, expect it to be used -----------
     passed_final = False
@@ -184,6 +189,7 @@ async def probe(client, model_id, sampling=None) -> dict:
     return {
         "passed": passed,
         "checks": checks,
+        "observed_tool_call": observed,
         "reasoning_content_captured": reasoning_seen,
         "latency_s": {"first_call": timings[0] if timings else None,
                       "second_call": timings[1] if len(timings) > 1 else None},

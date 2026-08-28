@@ -16,8 +16,12 @@ ordinary harness and evaluation use never needs them.
 from .runlog import RunLogger, read_metrics, run_dir_for
 from .telemetry import (aggregate, episode_metrics, load_grades,
                         rollout_telemetry)
+from .trace import (format_trace, print_trace, save_as_rollouts, save_trace,
+                    tool_call_summary)
 
 __all__ = [
     "RunLogger", "read_metrics", "run_dir_for",
     "episode_metrics", "aggregate", "rollout_telemetry", "load_grades",
+    "format_trace", "print_trace", "save_trace", "save_as_rollouts",
+    "tool_call_summary",
 ]

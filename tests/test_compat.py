@@ -78,6 +78,9 @@ def test_healthy_client_passes_all_required_checks():
     assert r["reasoning_content_captured"] is True
     assert r["latency_s"]["first_call"] is not None
     assert r["usage"]["first_call"]["reasoning_tokens"] == 5
+    # The observed call is surfaced so a pass SHOWS the tool being invoked.
+    assert r["observed_tool_call"]["name"] == "lookup"
+    assert r["observed_tool_call"]["arguments"] == {"key": LOOKUP_KEY}
 
 
 def test_healthy_without_reasoning_still_passes():
