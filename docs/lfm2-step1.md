@@ -106,7 +106,48 @@ nextsearch-compat --model lfm2.5-2.6b --base-url http://localhost:8000/v1
 ```
 
 Run it before spending anything on rollouts. Fake healthy / text-only clients
-cover it in `tests/test_compat.py`.
+cover it in `tests/test_compat.py`. The result includes `observed_tool_call`
+(name + parsed arguments) so a pass *shows* the tool being invoked, not just a
+green check.
+
+## Reasoning: LFM2.5-2.6B is a dense, non-reasoning model
+
+Per Liquid AI's model page, LFM2.5-2.6B is a **2.6B dense** model for agentic
+workloads with native tool calling — it has **no separate thinking/scratchpad
+channel**. So:
+
+- Do **not** pass `--reasoning-parser` for the 2.6B model. That flag is for the
+  reasoning variants (`LFM2.5-1.2B-Thinking`, `LFM2.5-8B-A1B`), which emit a
+  `<think>…</think>` block that `qwen3` splits into `reasoning_content`.
+- When the 2.6B model "thinks", that text is part of its **answer** — there is
+  nothing to parse out, and `reasoning_content` is legitimately empty. This is
+  expected behavior, not a tool-parsing bug.
+- If you want an explicit scratchpad, either prompt for one (ask for a delimited
+  "Reasoning:" section followed by a final answer) or switch to a reasoning
+  variant served with `--reasoning-parser qwen3`, in which case the harness
+  captures the thinking in `reasoning_content` automatically and the telemetry
+  `reasoning_tokens`/`reasoning_chars` fields fill in.
+
+## Inspecting a run: full traces
+
+A stop reason does not prove tools were called correctly — you want the whole
+conversation. `nextsearch.experiment.trace`:
+
+- `save_trace(rollout, path)` writes the raw rollout JSON (a complete,
+  re-loadable trace); `save_as_rollouts(rollout, path)` appends it to a
+  `rollouts.jsonl` so the live viewer and `nextsearch-telemetry` treat a
+  one-off smoke episode like any run.
+- `print_trace(rollout)` renders the transcript: a header (stop reason, turns,
+  wall/model time, cost) and a **tool-call summary**, then every turn with each
+  tool call's parsed arguments, each tool result, any reasoning, and the final
+  answer.
+
+The Stage-1 smoke cell saves the raw trace and prints it in full, which is how
+you confirm — by eye — that `search`/`fetch` were called with sensible
+arguments and the model used the results. Note that a self-hosted vLLM model has
+no per-token price, so `model_$` is `None` in a trace (not an error); search/
+fetch cost is tracked separately and GPU dollars are estimated from wall time in
+the telemetry aggregate.
 
 ## Ungraded rollout vs paid grading
 
