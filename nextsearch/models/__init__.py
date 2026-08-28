@@ -13,7 +13,7 @@ from dataclasses import asdict, dataclass, field
 @dataclass
 class Model:
     name: str                      # registry key; used in run paths and results
-    client: str                    # "openai" | "openrouter" | "vllm"
+    client: str                    # "openai" | "openrouter" | "vllm" | "gemini"
     model_id: str                  # the id sent on the wire
     base_url: "str | None" = None  # for self-hosted endpoints
     sampling: dict = field(default_factory=dict)  # temperature, max_tokens, ...
@@ -61,6 +61,13 @@ def _make_client(model: Model) -> Client:
     if model.client == "openrouter":
         return OpenAICompatClient(base_url="https://openrouter.ai/api/v1",
                                   api_key_env="OPENROUTER_API_KEY")
+    if model.client == "gemini":
+        # Google's OpenAI-compatible endpoint, so the same client works with a
+        # Google AI Studio key. Useful as a judge for users who have
+        # GEMINI_API_KEY rather than OPENROUTER_API_KEY (see the LFM notebook).
+        return OpenAICompatClient(
+            base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+            api_key_env="GEMINI_API_KEY")
     if model.client == "vllm":
         if not model.base_url:
             raise ValueError(f"vllm model {model.name!r} needs base_url "
