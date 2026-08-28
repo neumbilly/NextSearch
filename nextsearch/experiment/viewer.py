@@ -45,6 +45,26 @@ def _find_rollout_files(run_dir):
     return sorted(files)
 
 
+def training_series(run_dir):
+    """Training curves from `metrics.jsonl`: every numeric field logged with a
+    `step`, grouped into one sorted series per `phase/field` (e.g.
+    `train/loss`, `train/reward`, `eval/accuracy`). Empty until an SFT/OPD/RL
+    stage logs step records — which is exactly Stage 1 before any training."""
+    series = {}
+    for rec in read_metrics(run_dir):
+        if "step" not in rec:
+            continue
+        phase = rec.get("phase", "train")
+        for k, v in rec.items():
+            if k in _NON_SERIES or not isinstance(v, (int, float)) \
+                    or isinstance(v, bool):
+                continue
+            series.setdefault(f"{phase}/{k}", []).append((rec["step"], v))
+    for key in series:
+        series[key].sort(key=lambda sv: sv[0])
+    return series
+
+
 def collect(run_dir, *, gpu=None, vllm_version=None, gpu_hourly_usd=None):
     """Gather everything the dashboard needs from a run directory, without
     drawing: per-episode telemetry, the aggregate, and training-curve series.
@@ -59,23 +79,8 @@ def collect(run_dir, *, gpu=None, vllm_version=None, gpu_hourly_usd=None):
             continue
     summary = aggregate(episodes, gpu_hourly_usd=gpu_hourly_usd) if episodes \
         else {"n_episodes": 0}
-
-    # Training curves: every numeric field logged with a `step`, grouped into
-    # one series per (phase, field). A phase with no step records contributes
-    # nothing, which is exactly Stage 1 before any training runs.
-    series = {}
-    for rec in read_metrics(run_dir):
-        if "step" not in rec:
-            continue
-        phase = rec.get("phase", "train")
-        for k, v in rec.items():
-            if k in _NON_SERIES or not isinstance(v, (int, float)) \
-                    or isinstance(v, bool):
-                continue
-            series.setdefault(f"{phase}/{k}", []).append((rec["step"], v))
-    for key in series:
-        series[key].sort(key=lambda sv: sv[0])
-    return {"episodes": episodes, "aggregate": summary, "series": series}
+    return {"episodes": episodes, "aggregate": summary,
+            "series": training_series(run_dir)}
 
 
 def _summary_lines(agg):
@@ -236,5 +241,87 @@ def live_view(run_dir, *, refresh_s=5, max_seconds=None, gpu=None,
     clear_output(wait=True)
     display(fig)
     import matplotlib.pyplot as plt
+    plt.close(fig)
+    return run_dir
+
+
+def render_curves(run_dir, *, title=None, series=None, ncols=2):
+    """Draw the training curves for a run: one subplot per logged series
+    (`train/loss`, `train/reward`, `eval/accuracy`, …), each value vs step.
+
+    This is the focused view behind the training-curves notebook. It reads the
+    same `metrics.jsonl` any stage writes via `RunLogger`, so it works for real
+    SFT/OPD/RL runs and shows a clear placeholder when nothing is logged yet.
+    """
+    import matplotlib.pyplot as plt
+
+    series = training_series(run_dir) if series is None else series
+    if not series:
+        fig, ax = plt.subplots(figsize=(9, 5))
+        ax.axis("off")
+        ax.text(0.5, 0.5, "no training curves logged yet\n\n"
+                "log them with nextsearch.experiment.RunLogger:\n"
+                "  log.log(step=i, phase='train', loss=…, reward=…)",
+                ha="center", va="center", transform=ax.transAxes, color="gray",
+                family="monospace", fontsize=10)
+        fig.suptitle(title or f"training curves — {Path(run_dir).name}",
+                     fontweight="bold")
+        return fig
+
+    names = sorted(series)
+    nrows = (len(names) + ncols - 1) // ncols
+    fig, axes = plt.subplots(nrows, ncols, figsize=(6.5 * ncols, 3.4 * nrows),
+                             squeeze=False)
+    for i, name in enumerate(names):
+        ax = axes[i // ncols][i % ncols]
+        xs, ys = zip(*series[name])
+        ax.plot(xs, ys, marker=".", linewidth=1.5)
+        ax.set_title(name, loc="left", fontsize=11, fontweight="bold")
+        ax.set_xlabel("step")
+        ax.grid(True, alpha=0.3)
+        # Latest value in the corner — the number you actually watch live.
+        ax.annotate(f"{ys[-1]:g}", xy=(1.0, 1.0), xycoords="axes fraction",
+                    ha="right", va="top", fontsize=9, color="#333")
+    for j in range(len(names), nrows * ncols):   # blank any unused cells
+        axes[j // ncols][j % ncols].axis("off")
+    fig.suptitle(title or f"training curves — {Path(run_dir).name}",
+                 fontsize=13, fontweight="bold")
+    fig.tight_layout(rect=(0, 0, 1, 0.97))
+    return fig
+
+
+def live_curves(run_dir, *, refresh_s=5, max_seconds=None, title=None,
+                stop_when_idle_s=None):
+    """Redraw the training curves in place every `refresh_s` seconds — the live
+    view for the training-curves notebook. Ends on interrupt, after
+    `max_seconds`, or when no new step has been logged for `stop_when_idle_s`.
+    """
+    from IPython.display import clear_output, display
+    import matplotlib.pyplot as plt
+
+    start = time.monotonic()
+    last_steps, last_change = -1, time.monotonic()
+    try:
+        while True:
+            series = training_series(run_dir)
+            n_steps = sum(len(v) for v in series.values())
+            if n_steps != last_steps:
+                last_steps, last_change = n_steps, time.monotonic()
+            fig = render_curves(run_dir, title=title, series=series)
+            clear_output(wait=True)
+            display(fig)
+            plt.close(fig)
+            now = time.monotonic()
+            if max_seconds is not None and now - start >= max_seconds:
+                break
+            if stop_when_idle_s is not None and n_steps > 0 \
+                    and now - last_change >= stop_when_idle_s:
+                break
+            time.sleep(refresh_s)
+    except KeyboardInterrupt:
+        pass
+    fig = render_curves(run_dir, title=title)
+    clear_output(wait=True)
+    display(fig)
     plt.close(fig)
     return run_dir
