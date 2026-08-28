@@ -19,9 +19,17 @@ Models = "https://huggingface.co/NextTokenAI"
 
 [project.scripts]
 nextsearch-eval = "nextsearch.cli:main"
+nextsearch-compat = "nextsearch.compat:main"
+nextsearch-telemetry = "nextsearch.experiment.telemetry:main"
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "pytest-asyncio>=0.24"]
+# The LFM experiment layer's live Colab viewer. Kept optional so ordinary
+# harness and evaluation use never pulls in plotting/notebook dependencies;
+# both are preinstalled in Colab. There is no experiment tracker dependency —
+# telemetry and training curves are local files rendered inline (see
+# nextsearch/experiment and docs/lfm2-step1.md).
+experiment = ["matplotlib>=3.7", "ipython>=8.0"]
 
 [build-system]
 requires = ["hatchling"]
