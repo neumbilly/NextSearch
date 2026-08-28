@@ -25,6 +25,18 @@ def test_lfm_endpoint_follows_nextsearch_base_url(monkeypatch):
     assert m.base_url == "http://localhost:9001/v1"
 
 
+def test_vllm_endpoint_resolved_from_env_at_call_time(monkeypatch):
+    # The notebook footgun: NEXTSEARCH_BASE_URL set AFTER import must still take
+    # effect, so get_model reads it at call time rather than freezing it.
+    monkeypatch.setenv("NEXTSEARCH_BASE_URL",
+                       "https://ws--nextsearch-lfm-vllm-serve.modal.run/v1")
+    m = get_model("lfm2.5-2.6b")
+    assert m.base_url == "https://ws--nextsearch-lfm-vllm-serve.modal.run/v1"
+    # An explicit base_url still wins over the environment.
+    m2 = get_model("lfm2.5-2.6b", base_url="http://localhost:8000/v1")
+    assert m2.base_url == "http://localhost:8000/v1"
+
+
 def test_gemini_judge_is_registered_but_not_the_default():
     from nextsearch.models.registry import DEFAULT_JUDGE
     m = get_model("gemini-3.6-flash")

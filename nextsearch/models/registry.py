@@ -97,8 +97,15 @@ def get_model(name, base_url=None) -> Model:
     from dataclasses import replace
     if name in MODELS:
         m = MODELS[name]
-        return replace(m, base_url=base_url) \
-            if base_url and m.client == "vllm" else m
+        if m.client == "vllm":
+            # Resolve the endpoint at CALL time, not import time: an explicit
+            # base_url wins, else the current NEXTSEARCH_BASE_URL, else the
+            # frozen default. Without this, setting NEXTSEARCH_BASE_URL after
+            # `import nextsearch` (the usual notebook order) had no effect and
+            # requests silently went to localhost.
+            url = base_url or os.environ.get("NEXTSEARCH_BASE_URL") or m.base_url
+            return replace(m, base_url=url)
+        return m
     if "/" in name:
         return Model(name=name.replace("/", "--"), client="openrouter",
                      model_id=name)
