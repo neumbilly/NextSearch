@@ -172,9 +172,12 @@ endpoint** via [`deploy/modal_lfm_server.py`](deploy/modal_lfm_server.py)
 (`modal deploy deploy/modal_lfm_server.py`). Training curves and rollout
 telemetry render **live in Colab, no external tracker**:
 [notebooks/01_lfm_serving_and_harness.ipynb](notebooks/01_lfm_serving_and_harness.ipynb)
-(serving + harness) and
+(Colab serving + harness),
 [notebooks/02_training_curves.ipynb](notebooks/02_training_curves.ipynb) (live
-curves). Full protocol, serving/Modal setup, and Stage-1 acceptance criteria:
+curves), and
+[notebooks/03_modal_notebook_gpu.ipynb](notebooks/03_modal_notebook_gpu.ipynb)
+(serve vLLM in a Modal Notebook's own GPU kernel). Full protocol, serving/Modal
+setup, and Stage-1 acceptance criteria:
 **[docs/lfm2-step1.md](docs/lfm2-step1.md)**.
 
 ## Data

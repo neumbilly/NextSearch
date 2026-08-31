@@ -180,6 +180,18 @@ Everything under `/mnt/nextsearch-runs` (manifests, `rollouts.jsonl`,
 `metrics.jsonl`, telemetry, curves) survives kernel restarts, and the GPU app
 spins down when idle so you only pay while it serves.
 
+### Or: serve vLLM inside the notebook's own GPU kernel
+
+If you'd rather not run a separate app, give the **notebook kernel a GPU**
+(L4, RAM ≳ 16 GB, CPU ≳ 4) and serve vLLM on `localhost` in the kernel. That is
+`notebooks/03_modal_notebook_gpu.ipynb`: install → start vLLM via `Popen` with a
+readiness loop → compat → prepare → smoke + dev rollout → live telemetry/curves
+→ stop. It is simpler (one place, no cold-start URL) but the **GPU bills for the
+whole time the kernel runs** (the idle timeout stops it), so it is not
+scale-to-zero. Attach `huggingface-secret` (keys become env vars) and a Volume
+for persistence exactly as above. Choose the deployed app for pay-as-you-go, or
+the in-kernel GPU for a single, self-contained notebook.
+
 ## The compatibility gate
 
 `nextsearch-compat` (module `nextsearch/compat.py`) is a generic model/server
