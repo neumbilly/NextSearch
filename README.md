@@ -149,6 +149,37 @@ the task date.
 context cap must sit below your real serving window, and the two tool-calling
 misconfigurations that fail silently.
 
+## LFM experiment
+
+An experiment track for serving and studying **LiquidAI/LFM2.5-2.6B** as a
+web-research agent inside this harness. Stage 1 serves the model with vLLM,
+proves its native `lfm2` tool calling works end to end, runs reproducible
+rollouts against Parallel Turbo, and views telemetry and training curves **live
+in Colab — no W&B, no external tracker**. It is built so later SFT/OPD/RL stages
+reuse the same configs, rollout artifacts, and dashboards.
+
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/neumbilly/NextSearch/blob/cursor/lfm2.5-2.6b-stage1-3be6/notebooks/01_lfm_serving_and_harness.ipynb)
+
+```bash
+pip install -e ".[experiment]"          # adds the live-viewer deps (matplotlib, IPython)
+nextsearch-compat --model lfm2.5-2.6b   # tool-calling compatibility gate (no search credits)
+nextsearch-telemetry <run-dir>          # per-episode + aggregate telemetry (JSON/CSV)
+```
+
+Serve the model wherever you have a GPU and drive it from anywhere over
+`NEXTSEARCH_BASE_URL` — including a **pay-as-you-go, scale-to-zero Modal
+endpoint** via [`deploy/modal_lfm_server.py`](deploy/modal_lfm_server.py)
+(`modal deploy deploy/modal_lfm_server.py`). Training curves and rollout
+telemetry render **live in Colab, no external tracker**:
+[notebooks/01_lfm_serving_and_harness.ipynb](notebooks/01_lfm_serving_and_harness.ipynb)
+(Colab serving + harness),
+[notebooks/02_training_curves.ipynb](notebooks/02_training_curves.ipynb) (live
+curves), and
+[notebooks/03_modal_notebook_gpu.ipynb](notebooks/03_modal_notebook_gpu.ipynb)
+(serve vLLM in a Modal Notebook's own GPU kernel). Full protocol, serving/Modal
+setup, and Stage-1 acceptance criteria:
+**[docs/lfm2-step1.md](docs/lfm2-step1.md)**.
+
 ## Data
 
 Task pools and full trajectories on the Hub:

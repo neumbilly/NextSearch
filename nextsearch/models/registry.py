@@ -46,6 +46,17 @@ MODELS = {m.name: m for m in [
           model_id="NextTokenAI/NextSearch-1-XS",
           sampling=dict(_SERVE)),
 
+    # ---- experiment: LFM2.5-2.6B, served locally through vLLM (see
+    # docs/lfm2-step1.md). Deliberately NOT built from `_SERVE`: LFM2.5 is a
+    # different model family and must not inherit NextSearch-1's temperature
+    # 0.7. Its sampling is the Stage-1 web-research recipe — low temperature
+    # for stable tool-calling, an 8k completion cap, and the vLLM-only
+    # top_k / repetition_penalty passed through `extra_body`.
+    Model(name="lfm2.5-2.6b", client="vllm", base_url=LOCAL_BASE_URL,
+          model_id="LiquidAI/LFM2.5-2.6B",
+          sampling={"temperature": 0.1, "max_tokens": 8192,
+                    "extra_body": {"top_k": 50, "repetition_penalty": 1.1}}),
+
     # ---- graders
     # The default judge for every benchmark. All reported NextSearch-1 numbers
     # were graded with this model; changing it changes the scores, so treat a
@@ -53,6 +64,16 @@ MODELS = {m.name: m for m in [
     Model(name="gpt-5.6-luna-low", client="openrouter",
           model_id="openai/gpt-5.6-luna",
           sampling={"reasoning_effort": "low", "max_tokens": 8192}),
+
+    # An alternative judge for users with a Google AI Studio key
+    # (GEMINI_API_KEY) instead of OPENROUTER_API_KEY — served through Gemini's
+    # OpenAI-compatible endpoint. This is NOT the judge the reported
+    # NextSearch-1 numbers were graded with, so scores produced with it are a
+    # self-consistent evaluation of their own, not comparable to the headline
+    # table. Pass it explicitly with `--judge gemini-3.6-flash`.
+    Model(name="gemini-3.6-flash", client="gemini",
+          model_id="gemini-3.6-flash",
+          sampling={"temperature": 0.0, "max_tokens": 8192}),
 
     # ---- hosted reference models, for smoke-testing the harness
     Model(name="gpt-5.6-luna-med", client="openrouter",
@@ -76,8 +97,15 @@ def get_model(name, base_url=None) -> Model:
     from dataclasses import replace
     if name in MODELS:
         m = MODELS[name]
-        return replace(m, base_url=base_url) \
-            if base_url and m.client == "vllm" else m
+        if m.client == "vllm":
+            # Resolve the endpoint at CALL time, not import time: an explicit
+            # base_url wins, else the current NEXTSEARCH_BASE_URL, else the
+            # frozen default. Without this, setting NEXTSEARCH_BASE_URL after
+            # `import nextsearch` (the usual notebook order) had no effect and
+            # requests silently went to localhost.
+            url = base_url or os.environ.get("NEXTSEARCH_BASE_URL") or m.base_url
+            return replace(m, base_url=url)
+        return m
     if "/" in name:
         return Model(name=name.replace("/", "--"), client="openrouter",
                      model_id=name)
